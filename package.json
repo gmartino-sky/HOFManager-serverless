@@ -1,0 +1,55 @@
+{
+  "name": "hofmanager",
+  "version": "1.0.0",
+  "description": "**HOF Manager** is a private Discord bot built to manage weekly donations, clan member tracking, and character roles for MIR4 communities. Designed with internal clan logistics in mind, this bot ensures donation transparency, member self-service, and leadership oversight — all while keeping the main character as the point of control.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js",
+    "deploy:dev": "serverless deploy --stage dev",
+    "deploy:prod": "serverless deploy --stage prod",
+    "invoke:local": "serverless invoke local --function interactions",
+    "remove:dev": "serverless remove --stage dev",
+    "remove:prod": "serverless remove --stage prod",
+    "logs": "serverless logs --function interactions --tail"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gmartino-sky/HOFManager.git"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "mir4",
+    "clan",
+    "donations",
+    "management",
+    "hof"
+  ],
+  "author": "Gonzalo Martino",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/gmartino-sky/HOFManager/issues"
+  },
+  "homepage": "https://github.com/gmartino-sky/HOFManager#readme",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.709.0",
+    "@aws-sdk/client-s3": "^3.709.0",
+    "@aws-sdk/lib-dynamodb": "^3.709.0",
+    "@aws-sdk/s3-request-presigner": "^3.709.0",
+    "@discordjs/builders": "^1.13.0",
+    "@discordjs/rest": "^2.4.0",
+    "csv-stringify": "^6.5.2",
+    "csv-writer": "^1.6.0",
+    "discord-api-types": "^0.37.101",
+    "discord-interactions": "^4.1.0",
+    "discord.js": "^14.25.1",
+    "dotenv": "^16.5.0",
+    "luxon": "^3.6.1"
+  },
+  "devDependencies": {
+    "serverless": "^3.39.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-offline": "^13.8.1"
+  }
+}

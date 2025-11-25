@@ -1,0 +1,234 @@
+service: hofmanager-bot
+
+frameworkVersion: '3'
+
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  
+  environment:
+    DISCORD_PUBLIC_KEY: ${env:DISCORD_PUBLIC_KEY}
+    BOT_TOKEN: ${env:BOT_TOKEN}
+    CLIENT_ID: ${env:CLIENT_ID}
+    DYNAMODB_USERS_TABLE: ${self:service}-users-${self:provider.stage}
+    DYNAMODB_DONATIONS_TABLE: ${self:service}-donations-${self:provider.stage}
+    DYNAMODB_CONFIG_TABLE: ${self:service}-config-${self:provider.stage}
+    S3_BUCKET_NAME: ${self:service}-reports-${self:provider.stage}-${aws:accountId}
+    CLAN_LEADER_ROLE_ID: ${env:CLAN_LEADER_ROLE_ID, ''}
+    CLAN_MEMBER_ROLE_ID: ${env:CLAN_MEMBER_ROLE_ID, ''}
+  
+  iam:
+    role:
+      statements:
+        # DynamoDB permissions
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - !GetAtt UsersTable.Arn
+            - !GetAtt DonationsTable.Arn
+            - !GetAtt ConfigTable.Arn
+            - !Join ['', [!GetAtt UsersTable.Arn, '/index/*']]
+            - !Join ['', [!GetAtt DonationsTable.Arn, '/index/*']]
+        # S3 permissions
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - !Sub '${ReportsBucket.Arn}/*'
+
+functions:
+  # Main handler for Discord interactions
+  interactions:
+    handler: lambda/interactions.handler
+    timeout: 10
+    memorySize: 256
+    events:
+      - http:
+          path: interactions
+          method: post
+          cors: false
+    environment:
+      NODE_ENV: production
+
+  # Daily reminder cron job
+  dailyReminder:
+    handler: lambda/dailyReminder.handler
+    timeout: 300
+    memorySize: 512
+    events:
+      # Runs at 03:00 UTC (00:00 GMT-2)
+      - schedule:
+          rate: cron(0 3 * * ? *)
+          enabled: true
+          description: 'Daily donation reminder at 00:00 GMT-2'
+    environment:
+      NODE_ENV: production
+
+resources:
+  Resources:
+    # DynamoDB Table - Users
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_USERS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: guildId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: guildId
+            KeyType: HASH
+          - AttributeName: userId
+            KeyType: RANGE
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: false
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # DynamoDB Table - Donations
+    DonationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_DONATIONS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: guildId
+            AttributeType: S
+          - AttributeName: donationId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: guildId
+            KeyType: HASH
+          - AttributeName: donationId
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          # GSI for querying by guildId + userId
+          - IndexName: guildId-userId-index
+            KeySchema:
+              - AttributeName: guildId
+                KeyType: HASH
+              - AttributeName: userId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: false
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # DynamoDB Table - Config (for storing roles and guild settings)
+    ConfigTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_CONFIG_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: guildId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: guildId
+            KeyType: HASH
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: false
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # S3 Bucket for CSV reports
+    ReportsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.S3_BUCKET_NAME}
+        LifecycleConfiguration:
+          Rules:
+            # Delete files after 7 days
+            - Id: DeleteOldReports
+              Status: Enabled
+              ExpirationInDays: 7
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+  Outputs:
+    InteractionsUrl:
+      Description: Discord Interactions Endpoint URL
+      Value: !Sub 'https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}/interactions'
+    
+    UsersTableName:
+      Description: DynamoDB Users Table Name
+      Value: !Ref UsersTable
+    
+    DonationsTableName:
+      Description: DynamoDB Donations Table Name
+      Value: !Ref DonationsTable
+    
+    ReportsBucketName:
+      Description: S3 Reports Bucket Name
+      Value: !Ref ReportsBucket
+
+plugins:
+  - serverless-dotenv-plugin
+  - serverless-offline
+
+package:
+  exclude:
+    - .git/**
+    - .gitignore
+    - README.md
+    - COMMANDS_GUIDE.md
+    - DEPLOYMENT.md
+    - DEPLOYMENT_ES.md
+    - HOF_Manager_Terms_and_Privacy.pdf
+    - assets/**
+    - .env
+    - .env.example
+    - scripts/**
+  include:
+    - lambda/**
+    - commands/**
+    - handlers/**
+    - db/**
+    - utils/**
+    - config/**
+
