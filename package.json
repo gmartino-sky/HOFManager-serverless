@@ -48,8 +48,8 @@
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "serverless": "^3.39.0",
+    "serverless": "^4.37.0",
     "serverless-dotenv-plugin": "^6.0.0",
-    "serverless-offline": "^13.8.1"
+    "serverless-offline": "^14.7.2"
   }
 }
